@@ -1,0 +1,747 @@
+# =========================================================
+# Soil AMF establishment presence/absence workflow
+# =========================================================
+#
+# Response:
+#   present = 1 if copy_g_soil > 0
+#   present = 0 if copy_g_soil == 0
+#
+# Models:
+#   1. Full additive model:
+#        present ~ AMF + Plant + Nutrient
+#
+#   2. Isolate-specific models:
+#        present ~ Plant * Nutrient
+#
+# Estimation:
+#   Bias-reduced logistic regression using brglm2::brglmFit
+#
+# Outputs:
+#   - Treatment counts
+#   - Type III likelihood-ratio tests
+#   - Model coefficients
+#   - Estimated marginal means
+#   - Model diagnostics
+#   - Session information
+# =========================================================
+
+library(tidyverse)
+library(brglm2)
+library(car)
+library(emmeans)
+
+options(contrasts = c("contr.treatment", "contr.poly"))
+
+# ---------------------------------------------------------
+# 1. Read and prepare data
+# ---------------------------------------------------------
+
+dat <- read_csv("ddpcr.csv", show_col_types = FALSE)
+
+dat_soil <- dat %>%
+  mutate(
+    AMF = factor(
+      trimws(as.character(AMF)),
+      levels = c("197198", "Cuba8", "Aca", "Gig")
+    ),
+    Plant = factor(
+      trimws(as.character(Plant)),
+      levels = c("Bt", "To", "Fi", "Ga")
+    ),
+    Nutrient = factor(
+      trimws(as.character(Nutrient)),
+      levels = c("High", "Low")
+    ),
+    copy_g_soil = as.numeric(copy_g_soil),
+    present = if_else(copy_g_soil > 0, 1L, 0L)
+  ) %>%
+  filter(
+    !is.na(copy_g_soil),
+    !is.na(AMF),
+    !is.na(Plant),
+    !is.na(Nutrient)
+  ) %>%
+  droplevels()
+
+# ---------------------------------------------------------
+# 2. Treatment counts
+# ---------------------------------------------------------
+
+soil_establishment_counts <- dat_soil %>%
+  group_by(AMF, Plant, Nutrient) %>%
+  summarise(
+    n = n(),
+    present_n = sum(present),
+    absent_n = sum(present == 0),
+    prop_present = mean(present),
+    .groups = "drop"
+  )
+
+soil_positive_counts <- dat_soil %>%
+  filter(present == 1) %>%
+  count(AMF, Plant, name = "positive_n")
+
+write_csv(
+  soil_establishment_counts,
+  "SOIL_establishment_treatment_counts.csv"
+)
+
+write_csv(
+  soil_positive_counts,
+  "SOIL_positive_observation_counts_by_AMF_Plant.csv"
+)
+
+# ---------------------------------------------------------
+# 3. Model-fitting helper functions
+# ---------------------------------------------------------
+
+fit_brglm <- function(formula, data) {
+  glm(
+    formula,
+    data = data,
+    family = binomial,
+    method = brglm2::brglmFit
+  )
+}
+
+extract_type3 <- function(model, model_name) {
+  Anova(
+    model,
+    type = 3,
+    test.statistic = "LR"
+  ) %>%
+    as.data.frame() %>%
+    rownames_to_column("Effect") %>%
+    mutate(Model = model_name) %>%
+    relocate(Model)
+}
+
+extract_coefficients <- function(model, model_name) {
+  coef(summary(model)) %>%
+    as.data.frame() %>%
+    rownames_to_column("Term") %>%
+    rename(
+      Estimate = Estimate,
+      SE = `Std. Error`,
+      z_value = `z value`,
+      P_value = `Pr(>|z|)`
+    ) %>%
+    mutate(Model = model_name) %>%
+    relocate(Model)
+}
+
+extract_diagnostics <- function(model, model_name) {
+  mf <- model.frame(model)
+  response <- model.response(mf)
+
+  null_model <- glm(
+    response ~ 1,
+    data = mf,
+    family = binomial,
+    method = brglm2::brglmFit
+  )
+
+  cooks <- cooks.distance(model)
+  cook_threshold <- 4 / nrow(mf)
+
+  tibble(
+    Model = model_name,
+    n_observations = nrow(mf),
+    n_absent = sum(response == 0),
+    n_present = sum(response == 1),
+    null_deviance = unname(-2 * as.numeric(logLik(null_model))),
+    residual_deviance = unname(-2 * as.numeric(logLik(model))),
+    AIC = AIC(model),
+    residual_df = df.residual(model),
+    pearson_overdispersion =
+      sum(residuals(model, type = "pearson")^2, na.rm = TRUE) /
+      df.residual(model),
+    cook_threshold = cook_threshold,
+    influential_observations = sum(cooks > cook_threshold, na.rm = TRUE)
+  )
+}
+
+extract_emmeans_response <- function(model, specs, model_name) {
+  emmeans(
+    model,
+    specs = specs,
+    type = "response"
+  ) %>%
+    as.data.frame() %>%
+    mutate(Model = model_name) %>%
+    relocate(Model)
+}
+
+# ---------------------------------------------------------
+# 4. Full additive model
+# ---------------------------------------------------------
+
+m_soil_full <- fit_brglm(
+  present ~ AMF + Plant + Nutrient,
+  data = dat_soil
+)
+
+soil_full_type3 <- extract_type3(
+  m_soil_full,
+  "Full additive model"
+)
+
+soil_full_coefficients <- extract_coefficients(
+  m_soil_full,
+  "Full additive model"
+)
+
+soil_full_diagnostics <- extract_diagnostics(
+  m_soil_full,
+  "Full additive model"
+)
+
+soil_emm_amf <- extract_emmeans_response(
+  m_soil_full,
+  ~ AMF,
+  "Full additive model"
+) %>%
+  mutate(
+    relative_to_lowest = prob / min(prob, na.rm = TRUE)
+  ) %>%
+  arrange(desc(prob))
+
+soil_emm_plant_nutrient <- extract_emmeans_response(
+  m_soil_full,
+  ~ Plant | Nutrient,
+  "Full additive model"
+) %>%
+  group_by(Nutrient) %>%
+  mutate(
+    relative_to_lowest = prob / min(prob, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  arrange(Nutrient, desc(prob))
+
+# ---------------------------------------------------------
+# 5. Isolate-specific models
+# ---------------------------------------------------------
+
+isolate_data <- dat_soil %>%
+  group_split(AMF)
+
+names(isolate_data) <- dat_soil %>%
+  distinct(AMF) %>%
+  pull(AMF) %>%
+  as.character()
+
+isolate_models <- map(
+  isolate_data,
+  ~ fit_brglm(
+    present ~ Plant * Nutrient,
+    data = droplevels(.x)
+  )
+)
+
+soil_isolate_type3 <- imap_dfr(
+  isolate_models,
+  extract_type3
+)
+
+soil_isolate_coefficients <- imap_dfr(
+  isolate_models,
+  extract_coefficients
+)
+
+soil_isolate_diagnostics <- imap_dfr(
+  isolate_models,
+  extract_diagnostics
+)
+
+soil_isolate_emmeans <- imap_dfr(
+  isolate_models,
+  ~ extract_emmeans_response(
+    .x,
+    ~ Plant * Nutrient,
+    .y
+  )
+)
+
+# ---------------------------------------------------------
+# 6. Save model outputs
+# ---------------------------------------------------------
+
+write_csv(
+  soil_full_type3,
+  "SOIL_establishment_full_additive_TypeIII_LR_tests.csv"
+)
+
+write_csv(
+  soil_full_coefficients,
+  "SOIL_establishment_full_additive_coefficients.csv"
+)
+
+write_csv(
+  soil_emm_amf,
+  "SOIL_establishment_EMMeans_AMF_relative_to_lowest.csv"
+)
+
+write_csv(
+  soil_emm_plant_nutrient,
+  "SOIL_establishment_EMMeans_Plant_by_Nutrient_relative_to_lowest.csv"
+)
+
+write_csv(
+  soil_isolate_type3,
+  "SOIL_establishment_isolate_specific_TypeIII_LR_tests.csv"
+)
+
+write_csv(
+  soil_isolate_coefficients,
+  "SOIL_establishment_isolate_specific_coefficients.csv"
+)
+
+write_csv(
+  soil_isolate_emmeans,
+  "SOIL_establishment_isolate_specific_EMMeans_Plant_by_Nutrient.csv"
+)
+
+diagnostics_table <- bind_rows(
+  soil_full_diagnostics,
+  soil_isolate_diagnostics
+)
+
+write_csv(
+  diagnostics_table,
+  "SOIL_establishment_model_diagnostics.csv"
+)
+
+# ---------------------------------------------------------
+# 7. Print key outputs
+# ---------------------------------------------------------
+
+soil_establishment_counts
+soil_positive_counts
+
+soil_full_type3
+soil_full_coefficients
+soil_emm_amf
+soil_emm_plant_nutrient
+
+soil_isolate_type3
+soil_isolate_coefficients
+soil_isolate_emmeans
+
+diagnostics_table
+
+# ---------------------------------------------------------
+# 8. Session information
+# ---------------------------------------------------------
+
+writeLines(
+  capture.output(sessionInfo()),
+  "sessionInfo_SOIL_establishment_analysis.txt"
+)
+
+# =========================================================
+# End of workflow
+# =========================================================
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =========================================================
+# Root AMF establishment presence/absence analysis workflow
+# =========================================================
+#
+# Response:
+#   present = 1 if copy_g_root > 0
+#   present = 0 if copy_g_root == 0
+#
+# Full additive model:
+#   present ~ AMF + Plant + Nutrient
+#
+# Isolate-specific models:
+#   present ~ Plant * Nutrient
+#
+# Estimation:
+#   Bias-reduced logistic regression using brglm2::brglmFit
+#
+# Outputs:
+#   - Establishment treatment counts
+#   - Type III likelihood-ratio tests
+#   - Model coefficients
+#   - Hierarchical partitioning
+#   - EMMs and relative-to-lowest establishment probabilities
+#   - Isolate-specific tests and coefficients
+#   - Model diagnostics
+#   - Session information
+# =========================================================
+
+library(tidyverse)
+library(car)
+library(emmeans)
+library(glmm.hp)
+library(brglm2)
+
+options(contrasts = c("contr.treatment", "contr.poly"))
+
+# ---------------------------------------------------------
+# 1. Read and prepare data
+# ---------------------------------------------------------
+
+dat <- read_csv("ddpcr.csv", show_col_types = FALSE)
+
+dat_root <- dat %>%
+  mutate(
+    AMF = factor(
+      trimws(as.character(AMF)),
+      levels = c("197198", "Cuba8", "Aca", "Gig")
+    ),
+    Plant = factor(
+      trimws(as.character(Plant)),
+      levels = c("Bt", "To", "Fi", "Ga")
+    ),
+    Nutrient = factor(
+      trimws(as.character(Nutrient)),
+      levels = c("High", "Low")
+    ),
+    copy_g_root = as.numeric(copy_g_root),
+    present = if_else(copy_g_root > 0, 1L, 0L)
+  ) %>%
+  filter(
+    !is.na(copy_g_root),
+    !is.na(AMF),
+    !is.na(Plant),
+    !is.na(Nutrient)
+  ) %>%
+  droplevels() %>%
+  mutate(
+    AMF = relevel(AMF, ref = "197198"),
+    Plant = relevel(Plant, ref = "Bt"),
+    Nutrient = relevel(Nutrient, ref = "High")
+  )
+
+# ---------------------------------------------------------
+# 2. Establishment counts
+# ---------------------------------------------------------
+
+root_establishment_counts <- dat_root %>%
+  group_by(AMF, Plant, Nutrient) %>%
+  summarise(
+    n = n(),
+    present_n = sum(present == 1),
+    absent_n = sum(present == 0),
+    prop_present = mean(present),
+    .groups = "drop"
+  )
+
+root_positive_counts_amf_plant <- dat_root %>%
+  filter(present == 1) %>%
+  count(AMF, Plant, name = "positive_n") %>%
+  arrange(AMF, Plant)
+
+root_positive_counts_amf <- dat_root %>%
+  filter(present == 1) %>%
+  count(AMF, name = "positive_n") %>%
+  arrange(AMF)
+
+write_csv(
+  root_establishment_counts,
+  "ROOT_establishment_treatment_counts.csv"
+)
+
+write_csv(
+  root_positive_counts_amf_plant,
+  "ROOT_establishment_positive_counts_AMF_by_Plant.csv"
+)
+
+write_csv(
+  root_positive_counts_amf,
+  "ROOT_establishment_positive_counts_by_AMF.csv"
+)
+
+# ---------------------------------------------------------
+# 3. Full additive establishment model
+# ---------------------------------------------------------
+
+m_root_est <- glm(
+  present ~ AMF + Plant + Nutrient,
+  data = dat_root,
+  family = binomial,
+  method = brglm2::brglmFit
+)
+
+root_est_type3 <- Anova(
+  m_root_est,
+  type = 3,
+  test.statistic = "LR"
+)
+
+root_est_type3_df <- as.data.frame(root_est_type3) %>%
+  rownames_to_column("Effect")
+
+root_est_coef_full <- coef(summary(m_root_est)) %>%
+  as.data.frame() %>%
+  rownames_to_column("Term") %>%
+  rename(
+    SE = `Std. Error`,
+    z_value = `z value`,
+    P_value = `Pr(>|z|)`
+  )
+
+write_csv(
+  root_est_type3_df,
+  "ROOT_establishment_TypeIII_LR_tests.csv"
+)
+
+write_csv(
+  root_est_coef_full,
+  "ROOT_establishment_coefficients_full_additive.csv"
+)
+
+# ---------------------------------------------------------
+# 4. Hierarchical partitioning
+# ---------------------------------------------------------
+
+hp_root_est <- glmm.hp(
+  m_root_est,
+  type = "marginal"
+)
+
+root_est_varpart <- as.data.frame(hp_root_est$theoretical) %>%
+  rownames_to_column("Predictor") %>%
+  rename(
+    Independent_contribution = Individual,
+    Percent_contribution = `I.perc(%)`
+  )
+
+write_csv(
+  root_est_varpart,
+  "ROOT_establishment_hierarchical_partitioning.csv"
+)
+
+# ---------------------------------------------------------
+# 5. EMMs from full additive model
+# ---------------------------------------------------------
+
+root_est_amf <- emmeans(
+  m_root_est,
+  ~ AMF,
+  type = "response"
+) %>%
+  as.data.frame() %>%
+  mutate(
+    relative_to_lowest = prob / min(prob, na.rm = TRUE)
+  ) %>%
+  arrange(desc(prob))
+
+root_est_host_nutrient <- emmeans(
+  m_root_est,
+  ~ Plant | Nutrient,
+  type = "response"
+) %>%
+  as.data.frame() %>%
+  group_by(Nutrient) %>%
+  mutate(
+    relative_to_lowest = prob / min(prob, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  arrange(Nutrient, desc(prob))
+
+write_csv(
+  root_est_amf,
+  "ROOT_establishment_AMF_relative_to_lowest.csv"
+)
+
+write_csv(
+  root_est_host_nutrient,
+  "ROOT_establishment_host_by_nutrient_relative_to_lowest.csv"
+)
+
+# ---------------------------------------------------------
+# 6. Isolate-specific establishment models
+# ---------------------------------------------------------
+
+root_est_isolate_tests <- dat_root %>%
+  group_split(AMF) %>%
+  map_dfr(function(df) {
+
+    isolate_name <- as.character(unique(df$AMF))
+
+    df <- df %>%
+      mutate(
+        Plant = relevel(droplevels(Plant), ref = "Bt"),
+        Nutrient = relevel(droplevels(Nutrient), ref = "High")
+      )
+
+    mod <- glm(
+      present ~ Plant * Nutrient,
+      data = df,
+      family = binomial,
+      method = brglm2::brglmFit
+    )
+
+    Anova(mod, type = 3, test.statistic = "LR") %>%
+      as.data.frame() %>%
+      rownames_to_column("Effect") %>%
+      mutate(AMF = isolate_name) %>%
+      relocate(AMF)
+  })
+
+root_est_coef_by_isolate <- dat_root %>%
+  group_split(AMF) %>%
+  map_dfr(function(df) {
+
+    isolate_name <- as.character(unique(df$AMF))
+
+    df <- df %>%
+      mutate(
+        Plant = relevel(droplevels(Plant), ref = "Bt"),
+        Nutrient = relevel(droplevels(Nutrient), ref = "High")
+      )
+
+    mod <- glm(
+      present ~ Plant * Nutrient,
+      data = df,
+      family = binomial,
+      method = brglm2::brglmFit
+    )
+
+    coef(summary(mod)) %>%
+      as.data.frame() %>%
+      rownames_to_column("Term") %>%
+      rename(
+        SE = `Std. Error`,
+        z_value = `z value`,
+        P_value = `Pr(>|z|)`
+      ) %>%
+      mutate(AMF = isolate_name) %>%
+      relocate(AMF)
+  })
+
+write_csv(
+  root_est_isolate_tests,
+  "ROOT_establishment_isolate_specific_TypeIII_LR_tests.csv"
+)
+
+write_csv(
+  root_est_coef_by_isolate,
+  "ROOT_establishment_coefficients_by_isolate.csv"
+)
+
+# ---------------------------------------------------------
+# 7. Diagnostics
+# ---------------------------------------------------------
+
+extract_binomial_diagnostics <- function(model, model_name) {
+
+  mf <- model.frame(model)
+  response <- model.response(mf)
+
+  null_model <- glm(
+    response ~ 1,
+    data = mf,
+    family = binomial,
+    method = brglm2::brglmFit
+  )
+
+  cooks <- cooks.distance(model)
+  cook_threshold <- 4 / nrow(mf)
+
+  tibble(
+    model = model_name,
+    n_observations = nrow(mf),
+    n_absent = sum(response == 0),
+    n_present = sum(response == 1),
+    null_deviance = unname(-2 * as.numeric(logLik(null_model))),
+    residual_deviance = unname(-2 * as.numeric(logLik(model))),
+    AIC = AIC(model),
+    residual_df = df.residual(model),
+    pearson_overdispersion =
+      sum(residuals(model, type = "pearson")^2, na.rm = TRUE) /
+      df.residual(model),
+    cook_threshold = cook_threshold,
+    influential_observations = sum(cooks > cook_threshold, na.rm = TRUE)
+  )
+}
+
+root_full_diagnostics <- extract_binomial_diagnostics(
+  m_root_est,
+  "Full additive root establishment model"
+)
+
+root_isolate_models <- dat_root %>%
+  group_split(AMF)
+
+names(root_isolate_models) <- dat_root %>%
+  distinct(AMF) %>%
+  pull(AMF) %>%
+  as.character()
+
+root_isolate_models <- map(
+  root_isolate_models,
+  ~ glm(
+    present ~ Plant * Nutrient,
+    data = droplevels(.x),
+    family = binomial,
+    method = brglm2::brglmFit
+  )
+)
+
+root_isolate_diagnostics <- imap_dfr(
+  root_isolate_models,
+  extract_binomial_diagnostics
+)
+
+root_diagnostics <- bind_rows(
+  root_full_diagnostics,
+  root_isolate_diagnostics
+)
+
+write_csv(
+  root_diagnostics,
+  "ROOT_establishment_model_diagnostics.csv"
+)
+
+# ---------------------------------------------------------
+# 8. Print key outputs
+# ---------------------------------------------------------
+
+root_establishment_counts
+root_positive_counts_amf_plant
+root_positive_counts_amf
+
+root_est_type3_df
+root_est_coef_full
+root_est_varpart
+root_est_amf
+root_est_host_nutrient
+root_est_isolate_tests
+root_est_coef_by_isolate
+root_diagnostics
+
+# ---------------------------------------------------------
+# 9. Session information
+# ---------------------------------------------------------
+
+writeLines(
+  capture.output(sessionInfo()),
+  "sessionInfo_ROOT_establishment_analysis.txt"
+)
+
+# =========================================================
+# End of workflow
+# =========================================================
