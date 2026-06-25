@@ -1,0 +1,859 @@
+# =========================================================
+# Positive-only soil AMF abundance analysis workflow
+# =========================================================
+#
+# Response:
+#   copy_g_soil
+#
+# Analysis:
+#   Positive detections only:
+#     copy_g_soil > 0
+#
+# Transformation:
+#   log_copy = log10(copy_g_soil)
+#
+# Full additive model:
+#   log_copy ~ AMF + Plant + Nutrient
+#
+# Isolate-specific models:
+#   log_copy ~ Plant * Nutrient
+# =========================================================
+
+library(tidyverse)
+library(car)
+library(emmeans)
+
+options(contrasts = c("contr.treatment", "contr.poly"))
+
+# ---------------------------------------------------------
+# 1. Read and prepare data
+# ---------------------------------------------------------
+
+dat <- read_csv("ddpcr.csv", show_col_types = FALSE)
+
+dat_soil <- dat %>%
+  mutate(
+    AMF = factor(
+      trimws(as.character(AMF)),
+      levels = c("197198", "Cuba8", "Aca", "Gig")
+    ),
+    Plant = factor(
+      trimws(as.character(Plant)),
+      levels = c("Bt", "To", "Fi", "Ga")
+    ),
+    Nutrient = factor(
+      trimws(as.character(Nutrient)),
+      levels = c("High", "Low")
+    ),
+    copy_g_soil = as.numeric(copy_g_soil)
+  ) %>%
+  filter(
+    !is.na(copy_g_soil),
+    !is.na(AMF),
+    !is.na(Plant),
+    !is.na(Nutrient)
+  ) %>%
+  droplevels()
+
+# ---------------------------------------------------------
+# 2. Positive-only abundance dataset
+# ---------------------------------------------------------
+
+dat_soil_pos <- dat_soil %>%
+  filter(copy_g_soil > 0) %>%
+  mutate(
+    log_copy = log10(copy_g_soil),
+    AMF = relevel(droplevels(AMF), ref = "197198"),
+    Plant = relevel(droplevels(Plant), ref = "Bt"),
+    Nutrient = relevel(droplevels(Nutrient), ref = "High")
+  ) %>%
+  droplevels()
+
+# ---------------------------------------------------------
+# 3. Sample-size summaries
+# ---------------------------------------------------------
+
+soil_full_sample_sizes <- dat_soil %>%
+  count(AMF, Plant, Nutrient, name = "n") %>%
+  arrange(AMF, Plant, Nutrient)
+
+soil_positive_sample_sizes <- dat_soil_pos %>%
+  count(AMF, Plant, Nutrient, name = "n") %>%
+  arrange(AMF, Plant, Nutrient)
+
+soil_positive_counts_amf_plant <- dat_soil_pos %>%
+  count(AMF, Plant, name = "n") %>%
+  arrange(AMF, Plant)
+
+soil_positive_counts_amf <- dat_soil_pos %>%
+  count(AMF, name = "n") %>%
+  arrange(AMF)
+
+soil_positive_total <- tibble(
+  total_positive_observations = nrow(dat_soil_pos)
+)
+
+write_csv(soil_full_sample_sizes,
+          "SOIL_abundance_full_sample_sizes_before_positive_filter.csv")
+write_csv(soil_positive_sample_sizes,
+          "SOIL_abundance_positive_sample_sizes_AMF_Plant_Nutrient.csv")
+write_csv(soil_positive_counts_amf_plant,
+          "SOIL_abundance_positive_counts_AMF_by_Plant.csv")
+write_csv(soil_positive_counts_amf,
+          "SOIL_abundance_positive_counts_by_AMF.csv")
+write_csv(soil_positive_total,
+          "SOIL_abundance_positive_counts_total.csv")
+
+# ---------------------------------------------------------
+# 4. Full additive positive-only abundance model
+# ---------------------------------------------------------
+
+m_soil_abundance <- lm(
+  log_copy ~ AMF + Plant + Nutrient,
+  data = dat_soil_pos
+)
+
+soil_abundance_type2 <- Anova(
+  m_soil_abundance,
+  type = 2
+)
+
+soil_abundance_type2_df <- as.data.frame(soil_abundance_type2) %>%
+  rownames_to_column("Effect")
+
+soil_abundance_coefficients <- coef(summary(m_soil_abundance)) %>%
+  as.data.frame() %>%
+  rownames_to_column("Term") %>%
+  rename(
+    SE = `Std. Error`,
+    t_value = `t value`,
+    P_value = `Pr(>|t|)`
+  )
+
+write_csv(soil_abundance_type2_df,
+          "SOIL_abundance_TypeII_ANOVA.csv")
+write_csv(soil_abundance_coefficients,
+          "SOIL_abundance_coefficients_full_additive.csv")
+
+# ---------------------------------------------------------
+# 5. Relative predictor contribution from Type II sums of squares
+# ---------------------------------------------------------
+
+soil_abundance_contribution <- soil_abundance_type2_df %>%
+  filter(Effect != "Residuals") %>%
+  mutate(
+    Independent_contribution = `Sum Sq`,
+    Percent_contribution = 100 * `Sum Sq` / sum(`Sum Sq`, na.rm = TRUE)
+  ) %>%
+  select(
+    Predictor = Effect,
+    Independent_contribution,
+    Percent_contribution
+  )
+
+write_csv(soil_abundance_contribution,
+          "SOIL_abundance_relative_predictor_contribution.csv")
+
+# ---------------------------------------------------------
+# 6. Diagnostics for full additive model
+# ---------------------------------------------------------
+
+png(
+  filename = "SOIL_abundance_full_additive_diagnostic_plots.png",
+  width = 1800,
+  height = 1800,
+  res = 300
+)
+par(mfrow = c(2, 2))
+plot(m_soil_abundance)
+par(mfrow = c(1, 1))
+dev.off()
+
+shapiro_soil <- shapiro.test(residuals(m_soil_abundance))
+
+levene_soil <- leveneTest(
+  log_copy ~ interaction(AMF, Plant, Nutrient),
+  data = dat_soil_pos
+)
+
+soil_abundance_diagnostics <- tibble(
+  model = "SOIL abundance full additive model",
+  n_observations = nrow(model.frame(m_soil_abundance)),
+  residual_df = df.residual(m_soil_abundance),
+  AIC = AIC(m_soil_abundance),
+  residual_standard_error = sigma(m_soil_abundance),
+  adjusted_R2 = summary(m_soil_abundance)$adj.r.squared,
+  shapiro_W = unname(shapiro_soil$statistic),
+  shapiro_P = shapiro_soil$p.value
+)
+
+write_csv(soil_abundance_diagnostics,
+          "SOIL_abundance_model_diagnostics.csv")
+
+write_csv(
+  as.data.frame(levene_soil) %>%
+    rownames_to_column("Effect"),
+  "SOIL_abundance_Levene_test_AMF_Plant_Nutrient.csv"
+)
+
+# ---------------------------------------------------------
+# 7. Estimated marginal means
+# ---------------------------------------------------------
+
+emm_soil_amf <- emmeans(
+  m_soil_abundance,
+  ~ AMF
+)
+
+emm_soil_plant_nutrient <- emmeans(
+  m_soil_abundance,
+  ~ Plant | Nutrient
+)
+
+emm_soil_nutrient <- emmeans(
+  m_soil_abundance,
+  ~ Nutrient
+)
+
+soil_abundance_amf <- as.data.frame(emm_soil_amf) %>%
+  mutate(
+    abundance_backtransformed = 10^emmean,
+    relative_to_lowest = abundance_backtransformed /
+      min(abundance_backtransformed, na.rm = TRUE)
+  ) %>%
+  arrange(desc(emmean))
+
+soil_abundance_plant_nutrient <- as.data.frame(emm_soil_plant_nutrient) %>%
+  mutate(
+    abundance_backtransformed = 10^emmean
+  ) %>%
+  group_by(Nutrient) %>%
+  mutate(
+    relative_to_lowest = abundance_backtransformed /
+      min(abundance_backtransformed, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  arrange(Nutrient, desc(emmean))
+
+soil_abundance_nutrient <- as.data.frame(emm_soil_nutrient) %>%
+  mutate(
+    abundance_backtransformed = 10^emmean,
+    relative_to_lowest = abundance_backtransformed /
+      min(abundance_backtransformed, na.rm = TRUE)
+  ) %>%
+  arrange(desc(emmean))
+
+write_csv(soil_abundance_amf,
+          "SOIL_abundance_EMMeans_AMF_relative_to_lowest.csv")
+write_csv(soil_abundance_plant_nutrient,
+          "SOIL_abundance_EMMeans_Plant_by_Nutrient_relative_to_lowest.csv")
+write_csv(soil_abundance_nutrient,
+          "SOIL_abundance_EMMeans_Nutrient_relative_to_lowest.csv")
+
+# ---------------------------------------------------------
+# 8. Pairwise comparisons
+# ---------------------------------------------------------
+
+soil_abundance_amf_pairs <- pairs(
+  emm_soil_amf,
+  adjust = "BH"
+) %>%
+  as.data.frame()
+
+soil_abundance_plant_pairs <- pairs(
+  emm_soil_plant_nutrient,
+  adjust = "BH"
+) %>%
+  as.data.frame()
+
+soil_abundance_nutrient_pairs <- pairs(
+  emm_soil_nutrient,
+  adjust = "BH"
+) %>%
+  as.data.frame()
+
+write_csv(soil_abundance_amf_pairs,
+          "SOIL_abundance_pairwise_AMF_BH.csv")
+write_csv(soil_abundance_plant_pairs,
+          "SOIL_abundance_pairwise_Plant_by_Nutrient_BH.csv")
+write_csv(soil_abundance_nutrient_pairs,
+          "SOIL_abundance_pairwise_Nutrient_BH.csv")
+
+# ---------------------------------------------------------
+# 9. Isolate-specific positive-only abundance models
+# ---------------------------------------------------------
+
+fit_isolate_abundance <- function(df) {
+
+  isolate_name <- as.character(unique(df$AMF))
+
+  df <- df %>%
+    mutate(
+      Plant = relevel(droplevels(Plant), ref = "Bt"),
+      Nutrient = relevel(droplevels(Nutrient), ref = "High")
+    )
+
+  n_obs <- nrow(df)
+  n_plant <- n_distinct(df$Plant)
+  n_nutrient <- n_distinct(df$Nutrient)
+  n_cells <- df %>%
+    count(Plant, Nutrient) %>%
+    nrow()
+
+  can_fit <- (
+    n_obs > n_cells &&
+      n_plant >= 2 &&
+      n_nutrient >= 2 &&
+      n_cells >= 4
+  )
+
+  descriptives <- df %>%
+    group_by(Plant, Nutrient) %>%
+    summarise(
+      AMF = isolate_name,
+      n = n(),
+      mean_log_copy = mean(log_copy, na.rm = TRUE),
+      sd_log_copy = if_else(n() > 1, sd(log_copy, na.rm = TRUE), NA_real_),
+      se_log_copy = if_else(n() > 1, sd(log_copy, na.rm = TRUE) / sqrt(n()), NA_real_),
+      mean_copy_g_soil = mean(copy_g_soil, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    relocate(AMF)
+
+  if (!can_fit) {
+    return(list(
+      AMF = isolate_name,
+      model = NULL,
+      skipped = tibble(
+        AMF = isolate_name,
+        n_obs = n_obs,
+        n_plant_levels = n_plant,
+        n_nutrient_levels = n_nutrient,
+        n_observed_cells = n_cells,
+        reason = "Insufficient positive-only data for Plant * Nutrient model"
+      ),
+      descriptives = descriptives,
+      anova = tibble(
+        AMF = isolate_name,
+        Effect = "Insufficient sample size",
+        `Sum Sq` = NA_real_,
+        Df = NA_real_,
+        `F value` = NA_real_,
+        `Pr(>F)` = NA_real_
+      ),
+      coefficients = tibble(
+        AMF = isolate_name,
+        Term = "Insufficient sample size",
+        Estimate = NA_real_,
+        SE = NA_real_,
+        t_value = NA_real_,
+        P_value = NA_real_
+      ),
+      emmeans = tibble(),
+      pairs = tibble()
+    ))
+  }
+
+  model <- lm(
+    log_copy ~ Plant * Nutrient,
+    data = df
+  )
+
+  anova_df <- Anova(model, type = 2) %>%
+    as.data.frame() %>%
+    rownames_to_column("Effect") %>%
+    mutate(AMF = isolate_name) %>%
+    relocate(AMF)
+
+  coef_df <- coef(summary(model)) %>%
+    as.data.frame() %>%
+    rownames_to_column("Term") %>%
+    rename(
+      SE = `Std. Error`,
+      t_value = `t value`,
+      P_value = `Pr(>|t|)`
+    ) %>%
+    mutate(AMF = isolate_name) %>%
+    relocate(AMF)
+
+  emm_df <- emmeans(model, ~ Plant * Nutrient) %>%
+    as.data.frame() %>%
+    mutate(AMF = isolate_name) %>%
+    relocate(AMF)
+
+  pairs_df <- emmeans(model, ~ Plant) %>%
+    pairs(adjust = "BH") %>%
+    as.data.frame() %>%
+    mutate(AMF = isolate_name) %>%
+    relocate(AMF)
+
+  list(
+    AMF = isolate_name,
+    model = model,
+    skipped = tibble(),
+    descriptives = descriptives,
+    anova = anova_df,
+    coefficients = coef_df,
+    emmeans = emm_df,
+    pairs = pairs_df
+  )
+}
+
+isolate_results <- dat_soil_pos %>%
+  group_split(AMF) %>%
+  map(fit_isolate_abundance)
+
+soil_isolate_skipped <- map_dfr(isolate_results, "skipped")
+soil_isolate_descriptives <- map_dfr(isolate_results, "descriptives")
+soil_isolate_anova <- map_dfr(isolate_results, "anova")
+soil_isolate_coefficients <- map_dfr(isolate_results, "coefficients")
+soil_isolate_emmeans <- map_dfr(isolate_results, "emmeans")
+soil_isolate_pairs <- map_dfr(isolate_results, "pairs")
+
+write_csv(soil_isolate_skipped,
+          "SOIL_abundance_skipped_isolates.csv")
+write_csv(soil_isolate_descriptives,
+          "SOIL_abundance_isolate_specific_descriptives.csv")
+write_csv(soil_isolate_anova,
+          "SOIL_abundance_isolate_specific_TypeII_ANOVA.csv")
+write_csv(soil_isolate_coefficients,
+          "SOIL_abundance_isolate_specific_coefficients.csv")
+write_csv(soil_isolate_emmeans,
+          "SOIL_abundance_isolate_specific_EMMeans_Plant_by_Nutrient.csv")
+write_csv(soil_isolate_pairs,
+          "SOIL_abundance_isolate_specific_pairwise_Plant_BH.csv")
+
+# ---------------------------------------------------------
+# 10. Save model objects and session information
+# ---------------------------------------------------------
+
+soil_isolate_models <- isolate_results %>%
+  set_names(map_chr(isolate_results, "AMF")) %>%
+  map("model")
+
+saveRDS(
+  list(
+    full_additive_model = m_soil_abundance,
+    isolate_models = soil_isolate_models,
+    isolate_results = isolate_results
+  ),
+  "SOIL_abundance_model_outputs.rds"
+)
+
+writeLines(
+  capture.output(sessionInfo()),
+  "sessionInfo_SOIL_abundance_analysis.txt"
+)
+
+# ---------------------------------------------------------
+# 11. Print key outputs
+# ---------------------------------------------------------
+
+soil_positive_counts_amf_plant
+soil_positive_counts_amf
+soil_positive_total
+
+soil_abundance_type2_df
+soil_abundance_coefficients
+soil_abundance_contribution
+soil_abundance_amf
+soil_abundance_plant_nutrient
+soil_isolate_skipped
+soil_isolate_anova
+soil_isolate_coefficients
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =========================================================
+# Root AMF concentration / abundance analysis workflow
+# =========================================================
+#
+# Response:
+#   copy_g_root
+#
+# Analysis:
+#   Positive detections only:
+#     copy_g_root > 0
+#
+# Transformation:
+#   log10_root_abundance = log10(copy_g_root)
+#
+# Full additive model:
+#   log10_root_abundance ~ AMF + Plant + Nutrient
+#
+# Isolate-specific models:
+#   log10_root_abundance ~ Plant * Nutrient
+#
+# Outputs:
+#   - Positive observation counts
+#   - Type II ANOVA table
+#   - Model coefficients
+#   - AMF and Plant pairwise contrasts
+#   - Relative abundance EMMs
+#   - Isolate-specific tests and coefficients
+#   - Model diagnostics
+#   - Session information
+# =========================================================
+
+library(tidyverse)
+library(car)
+library(emmeans)
+
+options(contrasts = c("contr.treatment", "contr.poly"))
+
+# ---------------------------------------------------------
+# 1. Read and prepare data
+# ---------------------------------------------------------
+
+dat <- read_csv("ddpcr.csv", show_col_types = FALSE)
+
+dat_root <- dat %>%
+  mutate(
+    AMF = factor(
+      trimws(as.character(AMF)),
+      levels = c("197198", "Cuba8", "Aca", "Gig")
+    ),
+    Plant = factor(
+      trimws(as.character(Plant)),
+      levels = c("Bt", "To", "Fi", "Ga")
+    ),
+    Nutrient = factor(
+      trimws(as.character(Nutrient)),
+      levels = c("High", "Low")
+    ),
+    copy_g_root = as.numeric(copy_g_root)
+  ) %>%
+  filter(
+    !is.na(copy_g_root),
+    !is.na(AMF),
+    !is.na(Plant),
+    !is.na(Nutrient)
+  ) %>%
+  droplevels()
+
+# ---------------------------------------------------------
+# 2. Positive detections only
+# ---------------------------------------------------------
+
+dat_root_pos <- dat_root %>%
+  filter(copy_g_root > 0) %>%
+  mutate(
+    log10_root_abundance = log10(copy_g_root)
+  ) %>%
+  droplevels() %>%
+  mutate(
+    AMF = relevel(AMF, ref = "197198"),
+    Plant = relevel(Plant, ref = "Bt"),
+    Nutrient = relevel(Nutrient, ref = "High")
+  )
+
+# ---------------------------------------------------------
+# 3. Positive observation counts
+# ---------------------------------------------------------
+
+root_positive_counts_amf_plant <- dat_root_pos %>%
+  count(AMF, Plant, name = "n") %>%
+  arrange(AMF, Plant)
+
+root_positive_counts_amf <- dat_root_pos %>%
+  count(AMF, name = "n") %>%
+  arrange(AMF)
+
+root_positive_total <- tibble(
+  total_positive_observations = nrow(dat_root_pos)
+)
+
+write_csv(
+  root_positive_counts_amf_plant,
+  "ROOT_abundance_positive_counts_AMF_by_Plant.csv"
+)
+
+write_csv(
+  root_positive_counts_amf,
+  "ROOT_abundance_positive_counts_by_AMF.csv"
+)
+
+write_csv(
+  root_positive_total,
+  "ROOT_abundance_positive_counts_total.csv"
+)
+
+# ---------------------------------------------------------
+# 4. Full additive root abundance model
+# ---------------------------------------------------------
+
+m_root_abund <- lm(
+  log10_root_abundance ~ AMF + Plant + Nutrient,
+  data = dat_root_pos
+)
+
+root_abund_type2 <- Anova(
+  m_root_abund,
+  type = 2
+)
+
+root_abund_type2_df <- as.data.frame(root_abund_type2) %>%
+  rownames_to_column("Effect")
+
+root_abund_coefficients <- coef(summary(m_root_abund)) %>%
+  as.data.frame() %>%
+  rownames_to_column("Term") %>%
+  rename(
+    SE = `Std. Error`,
+    t_value = `t value`,
+    P_value = `Pr(>|t|)`
+  )
+
+write_csv(
+  root_abund_type2_df,
+  "ROOT_abundance_TypeII_ANOVA.csv"
+)
+
+write_csv(
+  root_abund_coefficients,
+  "ROOT_abundance_coefficients_full_additive.csv"
+)
+
+# ---------------------------------------------------------
+# 5. Relative predictor contribution from Type II sums of squares
+# ---------------------------------------------------------
+
+root_abund_varpart <- root_abund_type2_df %>%
+  filter(Effect != "Residuals") %>%
+  mutate(
+    Independent_contribution = `Sum Sq`,
+    Percent_contribution = 100 * `Sum Sq` / sum(`Sum Sq`, na.rm = TRUE)
+  ) %>%
+  select(
+    Predictor = Effect,
+    Independent_contribution,
+    Percent_contribution
+  )
+
+write_csv(
+  root_abund_varpart,
+  "ROOT_abundance_relative_predictor_contribution.csv"
+)
+
+# ---------------------------------------------------------
+# 6. Estimated marginal means and relative abundance
+# ---------------------------------------------------------
+
+root_abund_amf <- emmeans(
+  m_root_abund,
+  ~ AMF
+) %>%
+  as.data.frame() %>%
+  mutate(
+    abundance_backtransformed = 10^emmean,
+    relative_to_lowest = abundance_backtransformed /
+      min(abundance_backtransformed, na.rm = TRUE)
+  ) %>%
+  arrange(desc(emmean))
+
+root_abund_plant_nutrient <- emmeans(
+  m_root_abund,
+  ~ Plant | Nutrient
+) %>%
+  as.data.frame() %>%
+  mutate(
+    abundance_backtransformed = 10^emmean
+  ) %>%
+  group_by(Nutrient) %>%
+  mutate(
+    relative_to_lowest = abundance_backtransformed /
+      min(abundance_backtransformed, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  arrange(Nutrient, desc(emmean))
+
+write_csv(
+  root_abund_amf,
+  "ROOT_abundance_EMMeans_AMF_relative_to_lowest.csv"
+)
+
+write_csv(
+  root_abund_plant_nutrient,
+  "ROOT_abundance_EMMeans_Plant_by_Nutrient_relative_to_lowest.csv"
+)
+
+# ---------------------------------------------------------
+# 7. Pairwise contrasts
+# ---------------------------------------------------------
+
+root_abund_amf_pairs <- pairs(
+  emmeans(m_root_abund, ~ AMF),
+  adjust = "BH"
+) %>%
+  as.data.frame()
+
+root_abund_plant_pairs <- pairs(
+  emmeans(m_root_abund, ~ Plant),
+  adjust = "BH"
+) %>%
+  as.data.frame()
+
+write_csv(
+  root_abund_amf_pairs,
+  "ROOT_abundance_pairwise_AMF_BH.csv"
+)
+
+write_csv(
+  root_abund_plant_pairs,
+  "ROOT_abundance_pairwise_Plant_BH.csv"
+)
+
+# ---------------------------------------------------------
+# 8. Isolate-specific abundance models
+# ---------------------------------------------------------
+
+root_abund_isolate_tests <- dat_root_pos %>%
+  group_split(AMF) %>%
+  map_dfr(function(df) {
+
+    isolate_name <- as.character(unique(df$AMF))
+
+    if (nrow(df) < 6 || n_distinct(df$Plant) < 2) {
+      return(tibble(
+        AMF = isolate_name,
+        Effect = "Insufficient sample size",
+        `Sum Sq` = NA_real_,
+        Df = NA_real_,
+        `F value` = NA_real_,
+        `Pr(>F)` = NA_real_
+      ))
+    }
+
+    df <- df %>%
+      mutate(
+        Plant = relevel(droplevels(Plant), ref = "Bt"),
+        Nutrient = relevel(droplevels(Nutrient), ref = "High")
+      )
+
+    mod <- lm(
+      log10_root_abundance ~ Plant * Nutrient,
+      data = df
+    )
+
+    Anova(mod, type = 2) %>%
+      as.data.frame() %>%
+      rownames_to_column("Effect") %>%
+      mutate(AMF = isolate_name) %>%
+      relocate(AMF)
+  })
+
+root_abund_coef_by_isolate <- dat_root_pos %>%
+  group_split(AMF) %>%
+  map_dfr(function(df) {
+
+    isolate_name <- as.character(unique(df$AMF))
+
+    if (nrow(df) < 6 || n_distinct(df$Plant) < 2) {
+      return(tibble(
+        AMF = isolate_name,
+        Term = "Insufficient sample size",
+        Estimate = NA_real_,
+        SE = NA_real_,
+        t_value = NA_real_,
+        P_value = NA_real_
+      ))
+    }
+
+    df <- df %>%
+      mutate(
+        Plant = relevel(droplevels(Plant), ref = "Bt"),
+        Nutrient = relevel(droplevels(Nutrient), ref = "High")
+      )
+
+    mod <- lm(
+      log10_root_abundance ~ Plant * Nutrient,
+      data = df
+    )
+
+    coef(summary(mod)) %>%
+      as.data.frame() %>%
+      rownames_to_column("Term") %>%
+      rename(
+        SE = `Std. Error`,
+        t_value = `t value`,
+        P_value = `Pr(>|t|)`
+      ) %>%
+      mutate(AMF = isolate_name) %>%
+      relocate(AMF)
+  })
+
+write_csv(
+  root_abund_isolate_tests,
+  "ROOT_abundance_isolate_specific_TypeII_ANOVA.csv"
+)
+
+write_csv(
+  root_abund_coef_by_isolate,
+  "ROOT_abundance_isolate_specific_coefficients.csv"
+)
+
+# ---------------------------------------------------------
+# 9. Model diagnostics
+# ---------------------------------------------------------
+
+root_abund_diagnostics <- tibble(
+  model = "ROOT abundance full additive model",
+  n_observations = nrow(model.frame(m_root_abund)),
+  residual_df = df.residual(m_root_abund),
+  AIC = AIC(m_root_abund),
+  residual_standard_error = sigma(m_root_abund),
+  adjusted_R2 = summary(m_root_abund)$adj.r.squared,
+  shapiro_W = unname(shapiro.test(residuals(m_root_abund))$statistic),
+  shapiro_P = shapiro.test(residuals(m_root_abund))$p.value
+)
+
+write_csv(
+  root_abund_diagnostics,
+  "ROOT_abundance_model_diagnostics.csv"
+)
+
+# ---------------------------------------------------------
+# 10. Print key outputs
+# ---------------------------------------------------------
+
+root_positive_counts_amf_plant
+root_positive_counts_amf
+root_positive_total
+
+root_abund_type2_df
+root_abund_coefficients
+root_abund_varpart
+root_abund_amf
+root_abund_plant_nutrient
+root_abund_isolate_tests
+root_abund_coef_by_isolate
+root_abund_diagnostics
+
+# ---------------------------------------------------------
+# 11. Session information
+# ---------------------------------------------------------
+
+writeLines(
+  capture.output(sessionInfo()),
+  "sessionInfo_ROOT_abundance_analysis.txt"
+)
+
+# =========================================================
+# End of workflow
+# =========================================================
