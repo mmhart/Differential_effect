@@ -1,0 +1,381 @@
+# =========================================================
+# AMF inoculant performance heat-map workflow
+# =========================================================
+# Purpose:
+#   Generate three summary heat maps for AMF inoculation outcomes:
+#   1. Relative variance explained by AMF identity, host identity, and soil nutrients.
+#   2. Relative AMF isolate performance across fungal and plant-response metrics.
+#   3. Relative host performance under low and high soil nutrients.
+#
+# Notes:
+#   - Values in heat_dat are variance-explained percentages.
+#   - Values in iso_dat and host_dat are relative-to-lowest fold values.
+#   - Tile colours for isolate and host heat maps are scaled from 0 to 1 within each response
+#     to allow visual comparison among responses measured on different scales.
+#   - Text printed inside cells gives the unscaled relative-to-lowest values.
+# =========================================================
+ 
+library(tidyverse)
+library(patchwork)
+ 
+# ---------------------------------------------------------
+# Shared settings
+# ---------------------------------------------------------
+ 
+green_palette <- c(
+  "#f7fcf5",
+  "#d9f0d3",
+  "#a1d99b",
+  "#74c476",
+  "#41ab5d"
+)
+ 
+response_order <- c(
+  "AMF soil establishment",
+  "AMF soil abundance",
+  "Root biomass MR",
+  "Shoot biomass MR",
+  "Total shoot P MR"
+)
+ 
+# =========================================================
+# 1. Variance-explained heat map
+# =========================================================
+ 
+heat_dat <- tribble(
+  ~Response, ~Predictor, ~Variance_explained,
+  "AMF soil establishment", "AMF", 72.8,
+  "AMF soil establishment", "Plant", 26.6,
+  "AMF soil establishment", "Soil nutrients", 0.5,
+  "AMF soil abundance", "AMF", 90.2,
+  "AMF soil abundance", "Plant", 10.2,
+  "AMF soil abundance", "Soil nutrients", 0,
+  "Root biomass MR", "AMF", 1,
+  "Root biomass MR", "Plant", 34,
+  "Root biomass MR", "Soil nutrients", 5,
+  "Shoot biomass MR", "AMF", 2,
+  "Shoot biomass MR", "Plant", 3,
+  "Shoot biomass MR", "Soil nutrients", 0.5,
+  "Total shoot P MR", "AMF", 5,
+  "Total shoot P MR", "Plant", 28,
+  "Total shoot P MR", "Soil nutrients", 0.5
+) %>%
+  mutate(
+    Response = factor(Response, levels = response_order),
+    Predictor = factor(Predictor, levels = c("AMF", "Plant", "Soil nutrients"))
+  )
+ 
+p_variance <- ggplot(
+  heat_dat,
+  aes(x = Predictor, y = Response, fill = Variance_explained)
+) +
+  geom_tile(colour = "white", linewidth = 0.8) +
+  geom_text(
+    aes(label = paste0(round(Variance_explained, 1), "%")),
+    size = 4,
+    fontface = "bold"
+  ) +
+  scale_fill_gradientn(
+    colours = green_palette,
+    name = "Variance\nexplained (%)"
+  ) +
+  labs(
+    x = "Predictor",
+    y = NULL
+  ) +
+  theme_bw(base_size = 13) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(size = 12),
+    axis.text.y = element_text(size = 12),
+    axis.title.x = element_text(size = 13),
+    legend.position = "right"
+  )
+ 
+p_variance
+ 
+ggsave(
+  "variance_explained_heatmap.png",
+  p_variance,
+  width = 7,
+  height = 4.5,
+  dpi = 600,
+  bg = "white"
+)
+ 
+ggsave(
+  "variance_explained_heatmap.pdf",
+  p_variance,
+  width = 7,
+  height = 4.5,
+  bg = "white"
+)
+ 
+# =========================================================
+# 2. AMF isolate performance heat map
+# =========================================================
+ 
+iso_dat <- tribble(
+  ~AMF, ~Establishment, ~Abundance, ~Root_MR, ~Shoot_MR, ~TotP_MR,
+  "197",  3.847, 1584.973, 1.084, 1.000, 1.124,
+  "Cuba", 6.301,  545.286, 1.000, 1.081, 1.012,
+  "Fun",     NA,       NA, 1.357, 1.042, 1.126,
+  "Aca",  1.654,    1.000, 1.059, 1.091, 1.000,
+  "Gig",  1.000,    7.798, 1.231, 1.057, 1.604
+)
+ 
+iso_long <- iso_dat %>%
+  pivot_longer(
+    cols = -AMF,
+    names_to = "Response",
+    values_to = "Relative_value"
+  ) %>%
+  group_by(Response) %>%
+  mutate(
+    Scaled_value =
+      (Relative_value - min(Relative_value, na.rm = TRUE)) /
+      (max(Relative_value, na.rm = TRUE) - min(Relative_value, na.rm = TRUE))
+  ) %>%
+  ungroup() %>%
+  mutate(
+    AMF = factor(
+      AMF,
+      levels = c("197", "Cuba", "Fun", "Aca", "Gig"),
+      labels = c(
+        "DAOM 197198",
+        "Cuba8",
+        "Funneliformis",
+        "Acaulospora",
+        "Gigaspora"
+      )
+    ),
+    Response = factor(
+      Response,
+      levels = c("Establishment", "Abundance", "Root_MR", "Shoot_MR", "TotP_MR"),
+      labels = response_order
+    )
+  )
+ 
+p_isolate <- ggplot(
+  iso_long,
+  aes(x = AMF, y = Response, fill = Scaled_value)
+) +
+  geom_tile(colour = "white", linewidth = 0.8) +
+  geom_text(
+    aes(label = ifelse(is.na(Relative_value), "NA", round(Relative_value, 2))),
+    size = 4,
+    fontface = "bold"
+  ) +
+  scale_fill_gradientn(
+    colours = green_palette,
+    na.value = "grey90",
+    limits = c(0, 1),
+    name = "Scaled\nperformance"
+  ) +
+  labs(
+    x = "AMF isolate",
+    y = NULL
+  ) +
+  theme_bw(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 12),
+    legend.position = "right"
+  )
+ 
+p_isolate
+ 
+ggsave(
+  "AMF_isolate_performance_heatmap.png",
+  p_isolate,
+  width = 8,
+  height = 4.5,
+  dpi = 600,
+  bg = "white"
+)
+ 
+ggsave(
+  "AMF_isolate_performance_heatmap.pdf",
+  p_isolate,
+  width = 8,
+  height = 4.5,
+  bg = "white"
+)
+ 
+# =========================================================
+# 3. Host response heat map by soil nutrient level
+# =========================================================
+ 
+host_dat <- tribble(
+  ~Plant, ~Nutrient, ~Response, ~Relative_value,
+ 
+  # AMF soil establishment
+  "Bt", "Low",  "AMF soil establishment", 1.14,
+  "To", "Low",  "AMF soil establishment", 2.42,
+  "Fi", "Low",  "AMF soil establishment", 1.00,
+  "Ga", "Low",  "AMF soil establishment", 2.62,
+  "Bt", "High", "AMF soil establishment", 1.14,
+  "To", "High", "AMF soil establishment", 2.37,
+  "Fi", "High", "AMF soil establishment", 1.00,
+  "Ga", "High", "AMF soil establishment", 2.56,
+ 
+  # AMF soil abundance
+  "Bt", "Low",  "AMF soil abundance", 1.00,
+  "To", "Low",  "AMF soil abundance", 11.32,
+  "Fi", "Low",  "AMF soil abundance", 20.86,
+  "Ga", "Low",  "AMF soil abundance", 27.00,
+  "Bt", "High", "AMF soil abundance", 2.19,
+  "To", "High", "AMF soil abundance", 24.84,
+  "Fi", "High", "AMF soil abundance", 45.78,
+  "Ga", "High", "AMF soil abundance", 59.23,
+ 
+  # Root biomass mycorrhizal response
+  "Bt", "Low",  "Root biomass MR", 1.45,
+  "To", "Low",  "Root biomass MR", 1.00,
+  "Fi", "Low",  "Root biomass MR", 1.87,
+  "Ga", "Low",  "Root biomass MR", 1.02,
+  "Bt", "High", "Root biomass MR", 14.95,
+  "To", "High", "Root biomass MR", 1.70,
+  "Fi", "High", "Root biomass MR", 1.84,
+  "Ga", "High", "Root biomass MR", 1.00,
+ 
+  # Shoot biomass mycorrhizal response
+  "Bt", "Low",  "Shoot biomass MR", 1.23,
+  "To", "Low",  "Shoot biomass MR", 1.00,
+  "Fi", "Low",  "Shoot biomass MR", 1.06,
+  "Ga", "Low",  "Shoot biomass MR", 1.30,
+  "Bt", "High", "Shoot biomass MR", 1.03,
+  "To", "High", "Shoot biomass MR", 1.02,
+  "Fi", "High", "Shoot biomass MR", 1.19,
+  "Ga", "High", "Shoot biomass MR", 1.00,
+ 
+  # Total shoot phosphorus mycorrhizal response
+  "Bt", "Low",  "Total shoot P MR", 3.09,
+  "To", "Low",  "Total shoot P MR", 3.26,
+  "Fi", "Low",  "Total shoot P MR", 1.00,
+  "Ga", "Low",  "Total shoot P MR", 1.89,
+  "Bt", "High", "Total shoot P MR", 4.70,
+  "To", "High", "Total shoot P MR", 1.19,
+  "Fi", "High", "Total shoot P MR", 1.00,
+  "Ga", "High", "Total shoot P MR", 1.27
+)
+ 
+# Option A: scale across both nutrient levels within each response.
+# This preserves between-nutrient differences.
+host_long_global <- host_dat %>%
+  group_by(Response) %>%
+  mutate(
+    Scaled_value =
+      (Relative_value - min(Relative_value, na.rm = TRUE)) /
+      (max(Relative_value, na.rm = TRUE) - min(Relative_value, na.rm = TRUE))
+  ) %>%
+  ungroup()
+ 
+# Option B: scale separately within each nutrient level and response.
+# This emphasizes host ranking within each soil nutrient environment.
+host_long_by_nutrient <- host_dat %>%
+  group_by(Nutrient, Response) %>%
+  mutate(
+    Scaled_value =
+      (Relative_value - min(Relative_value, na.rm = TRUE)) /
+      (max(Relative_value, na.rm = TRUE) - min(Relative_value, na.rm = TRUE))
+  ) %>%
+  ungroup()
+ 
+format_host_data <- function(x) {
+  x %>%
+    mutate(
+      Plant = factor(Plant, levels = c("Bt", "To", "Fi", "Ga")),
+      Nutrient = factor(Nutrient, levels = c("Low", "High")),
+      Response = factor(Response, levels = response_order)
+    )
+}
+ 
+host_long_global <- format_host_data(host_long_global)
+host_long_by_nutrient <- format_host_data(host_long_by_nutrient)
+ 
+make_host_heat <- function(dat, nutrient_level) {
+  ggplot(
+    dat %>% filter(Nutrient == nutrient_level),
+    aes(x = Plant, y = Response, fill = Scaled_value)
+  ) +
+    geom_tile(colour = "white", linewidth = 0.8) +
+    geom_text(
+      aes(label = round(Relative_value, 2)),
+      size = 4,
+      fontface = "bold"
+    ) +
+    scale_fill_gradientn(
+      colours = green_palette,
+      limits = c(0, 1),
+      name = "Scaled\nresponse"
+    ) +
+    labs(
+      title = paste(nutrient_level, "soil nutrients"),
+      x = "Host plant",
+      y = NULL
+    ) +
+    theme_bw(base_size = 14) +
+    theme(
+      panel.grid = element_blank(),
+      plot.title = element_text(hjust = 0.5, face = "bold"),
+      axis.text.x = element_text(size = 12),
+      axis.text.y = element_text(size = 12),
+      legend.position = "right"
+    )
+}
+ 
+# Host heat map with scaling across both nutrient levels.
+p_host_global <- make_host_heat(host_long_global, "Low") +
+  make_host_heat(host_long_global, "High") +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right")
+ 
+p_host_global
+ 
+ggsave(
+  "Host_response_heatmap_scaled_across_nutrients.png",
+  p_host_global,
+  width = 11,
+  height = 4.8,
+  dpi = 600,
+  bg = "white"
+)
+ 
+ggsave(
+  "Host_response_heatmap_scaled_across_nutrients.pdf",
+  p_host_global,
+  width = 11,
+  height = 4.8,
+  bg = "white"
+)
+ 
+# Host heat map with scaling separately within each nutrient level.
+p_host_by_nutrient <- make_host_heat(host_long_by_nutrient, "Low") +
+  make_host_heat(host_long_by_nutrient, "High") +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "right")
+ 
+p_host_by_nutrient
+ 
+ggsave(
+  "Host_response_heatmap_scaled_within_nutrients.png",
+  p_host_by_nutrient,
+  width = 11,
+  height = 4.8,
+  dpi = 600,
+  bg = "white"
+)
+ 
+ggsave(
+  "Host_response_heatmap_scaled_within_nutrients.pdf",
+  p_host_by_nutrient,
+  width = 11,
+  height = 4.8,
+  bg = "white"
+)
+ 
+# =========================================================
+# End of workflow
+# =========================================================
