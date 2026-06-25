@@ -1,0 +1,359 @@
+# =========================================================
+# Mycorrhizal response statistical analysis workflow
+#
+# Responses:
+#   MR_rootbio
+#   MR_shootbio
+#   MR_TotP_shoot
+#
+# Primary analysis:
+#   Gaussian linear models:
+#     MR ~ AMF * Plant * Fert
+#
+# Outputs:
+#   1. Type III tests for fixed effects
+#   2. Sequential Type I F-tests
+#   3. Levene's tests for heterogeneity of variance
+#   4. GLS variance-structure AIC comparison as sensitivity analysis
+#   5. Estimated marginal means and pairwise contrasts
+#
+# Notes:
+#   GLS models are used only to evaluate sensitivity to heteroscedasticity.
+#   Fixed-effect inference is based on Gaussian linear models.
+# =========================================================
+
+# ------------------------------
+# 0. Packages
+# ------------------------------
+
+library(tidyverse)
+library(car)
+library(nlme)
+library(emmeans)
+
+# Use treatment contrasts for named coefficients
+options(contrasts = c("contr.treatment", "contr.poly"))
+
+# ------------------------------
+# 1. Read and prepare data
+# ------------------------------
+
+dat <- read_csv("MR_biomass_TotP_shoot_may25.csv", show_col_types = FALSE) %>%
+  mutate(
+    Sample = as.character(Sample),
+    Plant = factor(trimws(as.character(Plant)),
+                   levels = c("Bt", "To", "Fi", "Ga")),
+    AMF = factor(trimws(as.character(AMF))),
+    Fert = factor(trimws(as.character(Fert)),
+                  levels = c("Low", "High")),
+    MR_rootbio = as.numeric(MR_rootbio),
+    MR_shootbio = as.numeric(MR_shootbio),
+    MR_TotP_shoot = as.numeric(MR_TotP_shoot)
+  ) %>%
+  filter(AMF != "Ctrl") %>%
+  droplevels()
+
+# Optional: set AMF order explicitly if desired
+dat <- dat %>%
+  mutate(
+    AMF = factor(AMF, levels = c("197198", "Cuba8", "Fun", "Aca", "Gig"))
+  ) %>%
+  droplevels()
+
+# ------------------------------
+# 2. Analysis function
+# ------------------------------
+
+run_mr_analysis <- function(data, response) {
+  
+  message("\n\n============================================")
+  message("Response: ", response)
+  message("============================================")
+  
+  dat_resp <- data %>%
+    filter(!is.na(.data[[response]])) %>%
+    droplevels()
+  
+  form <- as.formula(paste(response, "~ AMF * Plant * Fert"))
+  
+  # ------------------------------
+  # 2.1 Primary Gaussian linear model
+  # ------------------------------
+  
+  mod_lm <- lm(
+    form,
+    data = dat_resp
+  )
+  
+  type3_tests <- Anova(mod_lm, type = 3)
+  sequential_tests <- anova(mod_lm)
+  
+  message("\n--- Type III tests from Gaussian linear model ---")
+  print(type3_tests)
+  
+  message("\n--- Sequential Type I F-tests from Gaussian linear model ---")
+  print(sequential_tests)
+  
+  # ------------------------------
+  # 2.2 Diagnostic tests
+  # ------------------------------
+  
+  shapiro_resid <- shapiro.test(residuals(mod_lm))
+  
+  lev_plant <- leveneTest(as.formula(paste(response, "~ Plant")),
+                          data = dat_resp)
+  lev_fert <- leveneTest(as.formula(paste(response, "~ Fert")),
+                         data = dat_resp)
+  lev_amf <- leveneTest(as.formula(paste(response, "~ AMF")),
+                        data = dat_resp)
+  
+  message("\n--- Shapiro-Wilk test of residuals ---")
+  print(shapiro_resid)
+  
+  message("\n--- Levene tests ---")
+  print(lev_plant)
+  print(lev_fert)
+  print(lev_amf)
+  
+  # ------------------------------
+  # 2.3 GLS variance-structure sensitivity analysis
+  # ------------------------------
+  
+  mod_equal <- gls(
+    form,
+    data = dat_resp,
+    method = "REML"
+  )
+  
+  mod_fert <- gls(
+    form,
+    data = dat_resp,
+    weights = varIdent(form = ~ 1 | Fert),
+    method = "REML"
+  )
+  
+  mod_plant <- gls(
+    form,
+    data = dat_resp,
+    weights = varIdent(form = ~ 1 | Plant),
+    method = "REML"
+  )
+  
+  mod_amf <- gls(
+    form,
+    data = dat_resp,
+    weights = varIdent(form = ~ 1 | AMF),
+    method = "REML"
+  )
+  
+  aic_tab <- AIC(
+    mod_equal,
+    mod_fert,
+    mod_plant,
+    mod_amf
+  ) %>%
+    as.data.frame() %>%
+    rownames_to_column("model") %>%
+    arrange(AIC)
+  
+  best_name <- aic_tab$model[1]
+  
+  best_gls <- list(
+    mod_equal = mod_equal,
+    mod_fert = mod_fert,
+    mod_plant = mod_plant,
+    mod_amf = mod_amf
+  )[[best_name]]
+  
+  gls_anova <- anova(best_gls)
+  
+  message("\n--- GLS AIC comparison ---")
+  print(aic_tab)
+  
+  message("\n--- Best-supported GLS variance structure ---")
+  print(best_name)
+  
+  message("\n--- ANOVA of best-supported GLS model, sensitivity analysis only ---")
+  print(gls_anova)
+  
+  # ------------------------------
+  # 2.4 Estimated marginal means from primary Gaussian model
+  # ------------------------------
+  
+  emm_amf <- emmeans(mod_lm, ~ AMF)
+  emm_plant_fert <- emmeans(mod_lm, ~ Plant | Fert)
+  emm_amf_by_plant_fert <- emmeans(mod_lm, ~ AMF | Plant * Fert)
+  
+  pairwise_amf <- pairs(emm_amf, adjust = "BH")
+  pairwise_plant_fert <- pairs(emm_plant_fert, adjust = "BH")
+  pairwise_amf_by_plant_fert <- pairs(
+    emm_amf_by_plant_fert,
+    adjust = "BH"
+  )
+  
+  # ------------------------------
+  # 2.5 Relative-to-lowest EMM tables
+  # ------------------------------
+  
+  emm_amf_relative <- as.data.frame(emm_amf) %>%
+    mutate(
+      response_backtransformed = exp(emmean),
+      relative_to_lowest = response_backtransformed /
+        min(response_backtransformed, na.rm = TRUE)
+    ) %>%
+    arrange(desc(emmean))
+  
+  emm_plant_fert_relative <- as.data.frame(emm_plant_fert) %>%
+    mutate(
+      response_backtransformed = exp(emmean)
+    ) %>%
+    group_by(Fert) %>%
+    mutate(
+      relative_to_lowest = response_backtransformed /
+        min(response_backtransformed, na.rm = TRUE)
+    ) %>%
+    ungroup() %>%
+    arrange(Fert, desc(emmean))
+  
+  # ------------------------------
+  # 2.6 Partial eta-squared from Type III tests
+  # ------------------------------
+  
+  type3_df <- as.data.frame(type3_tests) %>%
+    rownames_to_column("term")
+  
+  residual_ss <- type3_df %>%
+    filter(term == "Residuals") %>%
+    pull(`Sum Sq`)
+  
+  partial_eta2 <- type3_df %>%
+    filter(term != "Residuals") %>%
+    mutate(
+      partial_eta2 = `Sum Sq` / (`Sum Sq` + residual_ss)
+    )
+  
+  # ------------------------------
+  # 2.7 Write output tables
+  # ------------------------------
+  
+  write_csv(
+    type3_df,
+    paste0("MR_", response, "_TypeIII_tests_Gaussian_LM.csv")
+  )
+  
+  write_csv(
+    as.data.frame(sequential_tests) %>% rownames_to_column("term"),
+    paste0("MR_", response, "_Sequential_TypeI_tests_Gaussian_LM.csv")
+  )
+  
+  write_csv(
+    partial_eta2,
+    paste0("MR_", response, "_partial_eta2_TypeIII.csv")
+  )
+  
+  write_csv(
+    aic_tab,
+    paste0("MR_", response, "_GLS_AIC_sensitivity.csv")
+  )
+  
+  write_csv(
+    as.data.frame(gls_anova) %>% rownames_to_column("term"),
+    paste0("MR_", response, "_best_GLS_ANOVA_sensitivity.csv")
+  )
+  
+  write_csv(
+    as.data.frame(emm_amf),
+    paste0("MR_", response, "_EMMeans_AMF.csv")
+  )
+  
+  write_csv(
+    as.data.frame(emm_plant_fert),
+    paste0("MR_", response, "_EMMeans_Plant_by_Fert.csv")
+  )
+  
+  write_csv(
+    as.data.frame(emm_amf_by_plant_fert),
+    paste0("MR_", response, "_EMMeans_AMF_by_Plant_Fert.csv")
+  )
+  
+  write_csv(
+    as.data.frame(pairwise_amf),
+    paste0("MR_", response, "_Pairwise_AMF_BH.csv")
+  )
+  
+  write_csv(
+    as.data.frame(pairwise_plant_fert),
+    paste0("MR_", response, "_Pairwise_Plant_by_Fert_BH.csv")
+  )
+  
+  write_csv(
+    as.data.frame(pairwise_amf_by_plant_fert),
+    paste0("MR_", response, "_Pairwise_AMF_by_Plant_Fert_BH.csv")
+  )
+  
+  write_csv(
+    emm_amf_relative,
+    paste0("MR_", response, "_EMMeans_AMF_relative_to_lowest.csv")
+  )
+  
+  write_csv(
+    emm_plant_fert_relative,
+    paste0("MR_", response, "_EMMeans_Plant_by_Fert_relative_to_lowest.csv")
+  )
+  
+  invisible(
+    list(
+      data = dat_resp,
+      lm = mod_lm,
+      type3_tests = type3_tests,
+      sequential_tests = sequential_tests,
+      shapiro_resid = shapiro_resid,
+      levene_plant = lev_plant,
+      levene_fert = lev_fert,
+      levene_amf = lev_amf,
+      gls_aic = aic_tab,
+      best_gls_name = best_name,
+      best_gls = best_gls,
+      gls_anova = gls_anova,
+      partial_eta2 = partial_eta2,
+      emm_amf = emm_amf,
+      emm_plant_fert = emm_plant_fert,
+      emm_amf_by_plant_fert = emm_amf_by_plant_fert
+    )
+  )
+}
+
+# ------------------------------
+# 3. Run analyses
+# ------------------------------
+
+root_results <- run_mr_analysis(dat, "MR_rootbio")
+shoot_results <- run_mr_analysis(dat, "MR_shootbio")
+totp_results <- run_mr_analysis(dat, "MR_TotP_shoot")
+
+# ------------------------------
+# 4. Summary of GLS sensitivity models
+# ------------------------------
+
+summary_table <- tibble(
+  response = c("MR_rootbio", "MR_shootbio", "MR_TotP_shoot"),
+  best_gls_variance_structure = c(
+    root_results$best_gls_name,
+    shoot_results$best_gls_name,
+    totp_results$best_gls_name
+  )
+)
+
+write_csv(
+  summary_table,
+  "MR_GLS_sensitivity_model_summary.csv"
+)
+
+# ------------------------------
+# 5. Session information
+# ------------------------------
+
+writeLines(
+  capture.output(sessionInfo()),
+  "sessionInfo_MR_analysis.txt"
+)
