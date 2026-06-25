@@ -1,0 +1,244 @@
+Sample,AMF,Plant,Nutrient,copy_g_root,copy_g_soil
+24,197198,Bt,High,0,7112889
+139,197198,Bt,High,0,0
+176,197198,Bt,High,0,0
+273,197198,Bt,High,0,0
+312,197198,Bt,High,0,0
+354,197198,Bt,High,0,0
+400,197198,Bt,High,0,0
+403,197198,Bt,High,0,0
+94,197198,Bt,Low,1531156900,0
+104,197198,Bt,Low,0,0
+148,197198,Bt,Low,244985104,0
+241,197198,Bt,Low,0,0
+287,197198,Bt,Low,0,0
+355,197198,Bt,Low,0,0
+394,197198,Bt,Low,0,0
+422,197198,Bt,Low,0,0
+109,197198,Fi,High,0,0
+142,197198,Fi,High,0,0
+165,197198,Fi,High,0,0
+182,197198,Fi,High,0,0
+203,197198,Fi,High,0,0
+407,197198,Fi,High,0,0
+16,197198,Fi,Low,1024000000,0
+41,197198,Fi,Low,848556900,0
+69,197198,Fi,Low,48399849,0
+88,197198,Fi,Low,0,0
+121,197198,Fi,Low,10850763889,356794321
+175,197198,Fi,Low,78251716,0
+350,197198,Fi,Low,0,0
+25,197198,Ga,High,6.88E+13,3600000000
+211,197198,Ga,High,3.64E+15,0
+218,197198,Ga,High,0,0
+232,197198,Ga,High,0,1.60E+11
+303,197198,Ga,High,12656250000,0
+351,197198,Ga,High,0,0
+427,197198,Ga,High,5.21E+12,9298552041
+35,197198,Ga,Low,4.14E+13,473715225
+71,197198,Ga,Low,6.49E+12,6661561
+120,197198,Ga,Low,3.51E+11,0
+196,197198,Ga,Low,1.13E+14,7256484225
+283,197198,Ga,Low,1.20E+12,0
+332,197198,Ga,Low,0,0
+365,197198,Ga,Low,52517513889,0
+58,197198,To,High,2.93E+12,136118889
+116,197198,To,High,7.66E+11,2844408889
+133,197198,To,High,3.56E+14,59166864
+143,197198,To,High,36000000,0
+188,197198,To,High,2.05E+13,0
+213,197198,To,High,0,0
+376,197198,To,High,0,0
+416,197198,To,High,0,5.41E+11
+74,197198,To,Low,4.28E+14,6747472449
+151,197198,To,Low,142157929,0
+191,197198,To,Low,2.20E+15,46390698225
+201,197198,To,Low,1.99E+13,0
+230,197198,To,Low,1.20E+14,0
+231,197198,To,Low,50176000000,0
+346,197198,To,Low,256000000,0
+1,Aca,Bt,High,0.00E+00,0
+37,Aca,Bt,High,NA,0
+111,Aca,Bt,High,NA,0
+152,Aca,Bt,High,3733.236,0
+160,Aca,Bt,High,0,0
+200,Aca,Bt,High,0,0
+314,Aca,Bt,High,0,0
+324,Aca,Bt,High,0,313600
+431,Aca,Bt,High,1258.6611,0
+10,Aca,Bt,Low,612.059,0
+136,Aca,Bt,Low,0,0
+210,Aca,Bt,Low,0,0
+263,Aca,Bt,Low,0,0
+280,Aca,Bt,Low,0,0
+340,Aca,Bt,Low,201.91894,0
+345,Aca,Bt,Low,0,0
+386,Aca,Bt,Low,0,0
+418,Aca,Bt,Low,0,0
+15,Aca,Fi,High,NA,0
+48,Aca,Fi,High,0,0
+68,Aca,Fi,High,0,0
+205,Aca,Fi,High,0,0
+220,Aca,Fi,High,0,0
+266,Aca,Fi,High,0,0
+333,Aca,Fi,High,0,1440000
+405,Aca,Fi,High,0,0
+426,Aca,Fi,High,0,0
+5,Aca,Fi,Low,0,0
+19,Aca,Fi,Low,0,0
+87,Aca,Fi,Low,0,0
+112,Aca,Fi,Low,0,0
+135,Aca,Fi,Low,0,0
+226,Aca,Fi,Low,0,0
+311,Aca,Fi,Low,0,0
+321,Aca,Fi,Low,0,0
+401,Aca,Fi,Low,0,0
+42,Aca,Ga,High,0,0
+108,Aca,Ga,High,257.769,0
+129,Aca,Ga,High,1264.68,0
+195,Aca,Ga,High,0,0
+219,Aca,Ga,High,0,0
+234,Aca,Ga,High,,0
+271,Aca,Ga,High,0,0
+297,Aca,Ga,High,0,7840000
+23,Aca,Ga,Low,42611.9,0
+67,Aca,Ga,Low,242.034,0
+79,Aca,Ga,Low,0,0
+189,Aca,Ga,Low,0,0
+269,Aca,Ga,Low,0,0
+419,Aca,Ga,Low,8468.35,0
+57,Aca,To,High,NA,0
+59,Aca,To,High,NA,0
+93,Aca,To,High,0,0
+113,Aca,To,High,0,0
+185,Aca,To,High,0,0
+251,Aca,To,High,0,0
+260,Aca,To,High,0,0
+300,Aca,To,High,11607.565,0
+339,Aca,To,High,0,0
+86,Aca,To,Low,2270.6243,409600
+126,Aca,To,Low,0,0
+149,Aca,To,Low,0,0
+199,Aca,To,Low,0,313600
+204,Aca,To,Low,8850.804,313600
+320,Aca,To,Low,0,0
+342,Aca,To,Low,0,313600
+375,Aca,To,Low,0,0
+130,Cuba8 ,Bt,High,0,0
+228,Cuba8 ,Bt,High,0,0
+253,Cuba8 ,Bt,High,0,705592969
+316,Cuba8 ,Bt,High,33640000,2365444
+372,Cuba8 ,Bt,High,0,0
+3,Cuba8 ,Bt,Low,12960000,7912969
+72,Cuba8 ,Bt,Low,156250000,240777289
+145,Cuba8 ,Bt,Low,18757219849,0
+154,Cuba8 ,Bt,Low,0,0
+212,Cuba8 ,Bt,Low,0,0
+391,Cuba8 ,Bt,Low,107536900,174609796
+402,Cuba8 ,Bt,Low,0,0
+413,Cuba8 ,Bt,Low,243360000,0
+66,Cuba8 ,Fi,High,0,0
+81,Cuba8 ,Fi,High,0,309267396
+197,Cuba8 ,Fi,High,0,2681789796
+264,Cuba8 ,Fi,High,0,0
+299,Cuba8 ,Fi,High,5216017284,0
+347,Cuba8 ,Fi,High,581677924,246929796
+141,Cuba8 ,Fi,Low,367373889,0
+192,Cuba8 ,Fi,Low,0,0
+256,Cuba8 ,Fi,Low,0,0
+276,Cuba8 ,Fi,Low,0,0
+313,Cuba8 ,Fi,Low,0,36839044225
+360,Cuba8 ,Fi,Low,22877089,0
+364,Cuba8 ,Fi,Low,11985444,0
+424,Cuba8 ,Fi,Low,149377284,0
+52,Cuba8 ,Ga,High,0,0
+162,Cuba8 ,Ga,High,0,0
+247,Cuba8 ,Ga,High,0,219869584
+278,Cuba8 ,Ga,High,0,0
+288,Cuba8 ,Ga,High,0,5.89E+11
+317,Cuba8 ,Ga,High,0,0
+366,Cuba8 ,Ga,High,447491716,30949957476
+13,Cuba8 ,Ga,Low,0,0
+110,Cuba8 ,Ga,Low,36000000,129481641
+265,Cuba8 ,Ga,Low,0,0
+305,Cuba8 ,Ga,Low,0,0
+334,Cuba8 ,Ga,Low,0,705592969
+385,Cuba8 ,Ga,Low,33640000,2365444
+44,Cuba8 ,To,High,0,0
+91,Cuba8 ,To,High,12960000,7912969
+106,Cuba8 ,To,High,156250000,240777289
+239,Cuba8 ,To,High,18757219849,0
+296,Cuba8 ,To,High,0,0
+397,Cuba8 ,To,High,0,0
+428,Cuba8 ,To,High,107536900,174609796
+56,Cuba8 ,To,Low,0,0
+84,Cuba8 ,To,Low,243360000,0
+127,Cuba8 ,To,Low,0,0
+221,Cuba8 ,To,Low,0,309267396
+255,Cuba8 ,To,Low,0,2681789796
+262,Cuba8 ,To,Low,0,0
+319,Cuba8 ,To,Low,5216017284,0
+423,Cuba8 ,To,Low,581677924,246929796
+30,Gig,Bt,High,,0
+47,Gig,Bt,High,,518400
+65,Gig,Bt,High,,0
+115,Gig,Bt,High,,0
+174,Gig,Bt,High,,0
+178,Gig,Bt,High,,0
+275,Gig,Bt,High,,0
+349,Gig,Bt,High,,0
+49,Gig,Bt,Low,,0
+171,Gig,Bt,Low,,0
+244,Gig,Bt,Low,,0
+285,Gig,Bt,Low,,0
+358,Gig,Bt,Low,,0
+377,Gig,Bt,Low,,0
+393,Gig,Bt,Low,,0
+411,Gig,Bt,Low,,0
+20,Gig,Fi,High,,0
+77,Gig,Fi,High,,0
+107,Gig,Fi,High,,0
+122,Gig,Fi,High,,0
+147,Gig,Fi,High,,0
+179,Gig,Fi,High,,11289600
+286,Gig,Fi,High,,0
+374,Gig,Fi,High,,0
+410,Gig,Fi,High,,0
+6,Gig,Fi,Low,,0
+34,Gig,Fi,Low,,0
+53,Gig,Fi,Low,,0
+90,Gig,Fi,Low,,0
+156,Gig,Fi,Low,,0
+169,Gig,Fi,Low,,0
+215,Gig,Fi,Low,,0
+295,Gig,Fi,Low,,0
+412,Gig,Fi,Low,,0
+75,Gig,Ga,High,,0
+249,Gig,Ga,High,,0
+267,Gig,Ga,High,,0
+289,Gig,Ga,High,,0
+338,Gig,Ga,High,,0
+408,Gig,Ga,High,,0
+36,Gig,Ga,Low,,57760000
+92,Gig,Ga,Low,,0
+99,Gig,Ga,Low,,3686400
+134,Gig,Ga,Low,,0
+233,Gig,Ga,Low,,0
+243,Gig,Ga,Low,,0
+429,Gig,Ga,Low,,0
+2,Gig,To,High,,0
+64,Gig,To,High,,0
+118,Gig,To,High,,0
+184,Gig,To,High,,0
+270,Gig,To,High,,0
+293,Gig,To,High,,0
+370,Gig,To,High,,0
+379,Gig,To,High,,0
+404,Gig,To,High,,0
+138,Gig,To,Low,,0
+166,Gig,To,Low,,0
+186,Gig,To,Low,,0
+223,Gig,To,Low,,0
+248,Gig,To,Low,,0
+309,Gig,To,Low,,0
+341,Gig,To,Low,,0
